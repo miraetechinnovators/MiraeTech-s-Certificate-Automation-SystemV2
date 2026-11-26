@@ -1,0 +1,7 @@
+# NEVER upload passwords or logs
+.streamlit/secrets.toml
+logs/
+.venv/
+__pycache__/
+*.pyc
+*.zip

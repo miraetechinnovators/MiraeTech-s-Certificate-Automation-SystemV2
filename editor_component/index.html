@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Certificate editor</title>
+<style>
+  :root {
+    --bg: #ffffff; --bg2: #f4f6fa; --text: #1f2430; --muted: #6b7385; --line: #d9deea;
+    --accent: #00a19b; --accent-soft: #dff6f4; --danger: #c0392b;
+    --font: "Source Sans Pro", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: transparent; color: var(--text); font-family: var(--font); font-size: 14px; }
+  #app { display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 6px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .toolbar .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+  .toolbar .grow { flex: 1; }
+  button, select, input, textarea { font: inherit; color: var(--text); }
+  button {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer;
+    transition: background .12s, border-color .12s;
+  }
+  button:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #007a76; }
+  button.on { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+  button.danger:hover:not(:disabled) { background: #fdecea; border-color: var(--danger); color: var(--danger); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .stage { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+  canvas { display: block; width: 100%; background: #fff; border-radius: 4px; touch-action: none; outline: none;
+           box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+  .hint { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+  .panel { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .panel h4 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+  .row > label { width: 78px; color: var(--muted); font-size: 12.5px; flex: none; }
+  .row .ctl { flex: 1; min-width: 0; display: flex; gap: 6px; align-items: center; }
+  textarea, select, input[type=number] {
+    width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px;
+  }
+  textarea { resize: vertical; min-height: 54px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=color] { width: 38px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; flex: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .chip { font-size: 11.5px; padding: 2px 7px; border-radius: 999px; background: var(--accent-soft); border: 1px solid transparent; color: var(--accent); cursor: pointer; }
+  .chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .swatches { display: flex; gap: 4px; }
+  .sw { width: 18px; height: 18px; border-radius: 50%; border: 1px solid #0003; cursor: pointer; padding: 0; }
+  .seg { display: inline-flex; }
+  .seg button { border-radius: 0; margin-left: -1px; padding: 4px 9px; }
+  .seg button:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 7px 7px 0; }
+  .val { width: 44px; text-align: right; color: var(--muted); font-size: 12px; flex: none; }
+  .gallery { position: absolute; z-index: 20; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+             padding: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.2); display: none; max-width: 340px; }
+  .gallery.open { display: grid; grid-template-columns: repeat(4, 64px); gap: 8px; }
+  .gallery .item { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+                   display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 3px; }
+  .gallery .item:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .gallery .item img { max-width: 100%; max-height: 100%; }
+  .gallery .empty { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; padding: 2px 4px; }
+  .sample { color: var(--muted); font-size: 12.5px; display: flex; align-items: center; gap: 5px; }
+  .none { color: var(--muted); line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="toolbar">
+    <button id="addText" class="primary">＋ Text</button>
+    <button id="addSticker">＋ Sticker ▾</button>
+    <span class="sep"></span>
+    <button id="undo" title="Undo (Ctrl+Z)">↶</button>
+    <button id="redo" title="Redo (Ctrl+Y)">↷</button>
+    <span class="sep"></span>
+    <button id="dup" title="Duplicate">Duplicate</button>
+    <button id="front" title="Bring to front">↑ Front</button>
+    <button id="back" title="Send to back">↓ Back</button>
+    <button id="del" class="danger" title="Delete (Del key)">Delete</button>
+    <span class="grow"></span>
+    <label class="sample"><input type="checkbox" id="showSample" checked> <span id="sampleLabel">Preview with real data</span></label>
+  </div>
+  <div class="gallery" id="gallery"></div>
+  <div class="layout">
+    <div class="stage">
+      <canvas id="cv" tabindex="0"></canvas>
+      <div class="hint">Click an item to select it · drag to move · drag the ● handle to resize · arrow keys nudge (Shift = bigger steps)</div>
+    </div>
+    <div class="panel" id="panel"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- protocol
+const Streamlit = {
+  send(type, data) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, data), "*"); },
+  ready() { this.send("streamlit:componentReady", { apiVersion: 1 }); },
+  height(h) { this.send("streamlit:setFrameHeight", { height: h }); },
+  value(v) { this.send("streamlit:setComponentValue", { value: v, dataType: "json" }); },
+};
+
+// ---------------------------------------------------------------- state
+const LINE_HEIGHT = 1.25, MIN_FONT = 6;
+const S = {
+  args: null, layout: { elements: [] }, sel: null, hist: [], hpos: -1, rev: 0, token: null,
+  showSample: true, drag: null, guide: false, imgs: {}, loadedFonts: new Set(), lastHeight: 0,
+};
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const mctx = document.createElement("canvas").getContext("2d");   // for measuring text
+const $ = (id) => document.getElementById(id);
+
+let PW = 841.89, PH = 595.28, scale = 1, cssW = 800, cssH = 560, bgImg = null, bgSrc = null;
+
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const uid = () => "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const el = () => S.layout.elements.find((e) => e.id === S.sel) || null;
+const fams = () => (S.args && S.args.fonts) || [];
+function famInfo(name) {
+  const f = fams().find((x) => x.name === name);
+  if (f) return f;
+  const c = ((S.args && S.args.custom_fonts) || []).find((x) => x.name === name);
+  return c ? { name, category: "Your fonts", styles: { regular: "custom" } } : null;
+}
+
+// ---------------------------------------------------------------- fonts
+function loadFonts() {
+  const jobs = [];
+  const add = (family, source, style) => {
+    const key = family + "|" + style;
+    if (S.loadedFonts.has(key)) return;
+    S.loadedFonts.add(key);
+    const face = new FontFace(family, "url(" + source + ")", {
+      weight: style.includes("bold") ? "700" : "400", style: style.includes("italic") ? "italic" : "normal" });
+    jobs.push(face.load().then((f) => document.fonts.add(f)).catch((e) => console.warn("font failed", family, style, e)));
+  };
+  fams().forEach((f) => Object.entries(f.styles).forEach(([style, file]) => add(f.name, file, style)));
+  ((S.args && S.args.custom_fonts) || []).forEach((f) => add(f.name, f.data_url, "regular"));
+  if (jobs.length) Promise.all(jobs).then(() => { draw(); renderPanel(); });
+}
+const fontCss = (e, px) => (e.italic ? "italic " : "") + (e.bold ? "700 " : "400 ") + px + 'px "' + e.font + '"';
+
+// ---------------------------------------------------------------- text maths (mirrors certificates.py)
+function placeholdersResolve(text) {
+  if (!S.showSample || !S.args) return text;
+  const lookup = {};
+  Object.entries(S.args.sample || {}).forEach(([k, v]) => { lookup[k.replace(/\s+/g, " ").trim().toLowerCase()] = String(v); });
+  return String(text).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, key) => {
+    const k = key.replace(/\s+/g, " ").trim().toLowerCase();
+    return k in lookup ? lookup[k] : m;
+  });
+}
+function measurer(e) {
+  mctx.font = fontCss(e, 100);
+  mctx.fontKerning = "none"; mctx.textRendering = "optimizeSpeed";
+  return (s, size) => mctx.measureText(s).width * size / 100;
+}
+function wrapParagraph(text, width, size, maxW) {
+  const words = text.split(" "); const lines = []; let cur = "";
+  for (const w of words) {
+    const trial = cur ? cur + " " + w : w;
+    if (cur && width(trial, size) > maxW) { lines.push(cur); cur = w; } else { cur = trial; }
+  }
+  lines.push(cur);
+  return lines;
+}
+function layoutText(e, text) {
+  const width = measurer(e);
+  const maxW = e.w * PW;
+  let size = e.size;
+  const paragraphs = text.replace(/\r/g, "").split("\n");
+  if (e.fit !== "wrap") {
+    const widest = Math.max(0, ...paragraphs.map((p) => width(p, size)));
+    if (maxW > 0 && widest > maxW) size = Math.max(MIN_FONT, size * maxW / widest);
+    return { size, lines: paragraphs };
+  }
+  let lines = [];
+  for (let i = 0; i < 6; i++) {
+    lines = [];
+    paragraphs.forEach((p) => lines.push(...wrapParagraph(p, width, size, maxW)));
+    const longest = Math.max(0, ...lines.flatMap((l) => l.split(" ").map((w) => width(w, size))));
+    if (longest <= maxW || size <= MIN_FONT || maxW <= 0) break;
+    size = Math.max(MIN_FONT, size * maxW / longest);
+  }
+  return { size, lines };
+}
+function textGeometry(e) {
+  const text = placeholdersResolve(e.text || "");
+  const lay = layoutText(e, text);
+  const width = measurer(e);
+  const w = Math.max(10, ...lay.lines.map((l) => width(l, lay.size)));
+  const ax = e.x * PW, base = e.y * PH;
+  const x0 = e.align === "left" ? ax : e.align === "right" ? ax - w : ax - w / 2;
+  return { lay, w, x0, x1: x0 + w, top: base - lay.size * 0.85,
+           bottom: base + (lay.lines.length - 1) * lay.size * LINE_HEIGHT + lay.size * 0.3, ax, base };
+}
+function imageGeometry(e) {
+  const img = S.imgs[e.src];
+  const ratio = img && img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1;
+  const w = e.w * PW, h = w * ratio;
+  return { cx: e.x * PW, cy: e.y * PH, w, h, rot: (e.rot || 0) * Math.PI / 180 };
+}
+
+// ---------------------------------------------------------------- drawing
+function sizeCanvas() {
+  const stage = cv.parentElement;
+  cssW = Math.max(320, stage.clientWidth - 16);
+  cssH = cssW * PH / PW;
+  scale = cssW / PW;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
+  cv.style.height = cssH + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function draw() {
+  if (!S.args) return;
+  ctx.clearRect(0, 0, cssW, cssH);
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cssW, cssH);
+  if (bgImg && bgImg.complete && bgImg.naturalWidth) ctx.drawImage(bgImg, 0, 0, cssW, cssH);
+
+  for (const e of S.layout.elements) {
+    if (e.type === "text") {
+      const g = textGeometry(e);
+      ctx.save();
+      ctx.font = fontCss(e, g.lay.size * scale);
+      ctx.fontKerning = "none"; ctx.textRendering = "optimizeSpeed";
+      ctx.fillStyle = e.color || "#000"; ctx.textBaseline = "alphabetic";
+      ctx.textAlign = e.align === "left" ? "left" : e.align === "right" ? "right" : "center";
+      g.lay.lines.forEach((line, i) => ctx.fillText(line, g.ax * scale, (g.base + i * g.lay.size * LINE_HEIGHT) * scale));
+      ctx.restore();
+    } else if (e.type === "image") {
+      const img = S.imgs[e.src]; const g = imageGeometry(e);
+      if (img && img.complete && img.naturalWidth) {
+        ctx.save(); ctx.translate(g.cx * scale, g.cy * scale); ctx.rotate(g.rot);
+        ctx.drawImage(img, -g.w * scale / 2, -g.h * scale / 2, g.w * scale, g.h * scale);
+        ctx.restore();
+      }
+    }
+  }
+  if (S.guide) {
+    ctx.save(); ctx.strokeStyle = "#e0309a"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cssW / 2, 0); ctx.lineTo(cssW / 2, cssH); ctx.stroke(); ctx.restore();
+  }
+  const s = el();
+  if (s) drawSelection(s);
+}
+function drawSelection(e) {
+  ctx.save();
+  ctx.strokeStyle = "#00a19b"; ctx.fillStyle = "#00a19b"; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+  if (e.type === "text") {
+    const g = textGeometry(e), pad = 5;
+    ctx.strokeRect((g.x0 - pad) * scale, (g.top - pad) * scale, (g.x1 - g.x0 + 2 * pad) * scale, (g.bottom - g.top + 2 * pad) * scale);
+    // width-limit guide + handle
+    ctx.setLineDash([2, 4]); ctx.strokeStyle = "#00a19b99";
+    const half = e.w * PW / 2;
+    const lx = e.align === "left" ? g.ax : e.align === "right" ? g.ax - e.w * PW : g.ax - half;
+    ctx.strokeRect(lx * scale, (g.top - 2) * scale, e.w * PW * scale, (g.bottom - g.top + 4) * scale);
+    const h = textHandle(e, g);
+    ctx.setLineDash([]); ctx.beginPath(); ctx.arc(h.x * scale, h.y * scale, 6, 0, 7); ctx.fill();
+  } else {
+    const g = imageGeometry(e);
+    ctx.translate(g.cx * scale, g.cy * scale); ctx.rotate(g.rot);
+    ctx.strokeRect(-g.w * scale / 2, -g.h * scale / 2, g.w * scale, g.h * scale);
+    ctx.setLineDash([]); ctx.beginPath(); ctx.arc(g.w * scale / 2, g.h * scale / 2, 6, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+function textHandle(e, g) {
+  const right = e.align === "left" ? g.ax + e.w * PW : e.align === "right" ? g.ax : g.ax + e.w * PW / 2;
+  return { x: right, y: (g.top + g.bottom) / 2 };
+}
+function imageHandle(e) {
+  const g = imageGeometry(e), c = Math.cos(g.rot), s = Math.sin(g.rot);
+  const lx = g.w / 2, ly = g.h / 2;
+  return { x: g.cx + lx * c - ly * s, y: g.cy + lx * s + ly * c };
+}
+
+// ---------------------------------------------------------------- pointer interaction
+function pt(ev) { const r = cv.getBoundingClientRect(); return { x: (ev.clientX - r.left) / scale, y: (ev.clientY - r.top) / scale }; }
+function hit(p) {
+  const list = S.layout.elements;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const e = list[i];
+    if (e.type === "text") {
+      const g = textGeometry(e), pad = 6;
+      if (p.x >= g.x0 - pad && p.x <= g.x1 + pad && p.y >= g.top - pad && p.y <= g.bottom + pad) return e;
+    } else {
+      const g = imageGeometry(e), c = Math.cos(-g.rot), s = Math.sin(-g.rot);
+      const dx = p.x - g.cx, dy = p.y - g.cy, lx = dx * c - dy * s, ly = dx * s + dy * c;
+      if (Math.abs(lx) <= g.w / 2 && Math.abs(ly) <= g.h / 2) return e;
+    }
+  }
+  return null;
+}
+function onHandle(p) {
+  const e = el(); if (!e) return false;
+  const h = e.type === "text" ? textHandle(e, textGeometry(e)) : imageHandle(e);
+  return Math.hypot(p.x - h.x, p.y - h.y) * scale < 11;
+}
+cv.addEventListener("pointerdown", (ev) => {
+  cv.focus(); const p = pt(ev);
+  if (onHandle(p)) {
+    const e = el(); S.drag = { mode: "resize", id: e.id, start: p, orig: clone(e) };
+    if (e.type === "image") { const g = imageGeometry(e); S.drag.d0 = Math.hypot(p.x - g.cx, p.y - g.cy) || 1; }
+  } else {
+    const e = hit(p);
+    S.sel = e ? e.id : null;
+    if (e) S.drag = { mode: "move", id: e.id, off: { x: p.x - e.x * PW, y: p.y - e.y * PH } };
+    renderPanel(); draw();
+  }
+  if (S.drag) cv.setPointerCapture(ev.pointerId);
+});
+cv.addEventListener("pointermove", (ev) => {
+  const p = pt(ev);
+  if (!S.drag) {
+    cv.style.cursor = onHandle(p) ? "nwse-resize" : (hit(p) ? "move" : "default");
+    return;
+  }
+  const e = S.layout.elements.find((x) => x.id === S.drag.id); if (!e) return;
+  if (S.drag.mode === "move") {
+    let nx = clamp((p.x - S.drag.off.x) / PW, 0, 1), ny = clamp((p.y - S.drag.off.y) / PH, 0, 1);
+    S.guide = false;
+    if (Math.abs(nx - 0.5) < 0.008 && (e.type === "image" || e.align === "center")) { nx = 0.5; S.guide = true; }
+    e.x = +nx.toFixed(4); e.y = +ny.toFixed(4);
+  } else if (e.type === "text") {
+    const g = textGeometry(e);
+    let w = e.align === "left" ? p.x - g.ax : e.align === "right" ? g.ax - p.x : 2 * Math.abs(p.x - g.ax);
+    e.w = +clamp(w / PW, 0.05, 1).toFixed(3);
+  } else {
+    const g = imageGeometry(e);
+    const d = Math.hypot(p.x - g.cx, p.y - g.cy);
+    e.w = +clamp(S.drag.orig.w * d / S.drag.d0, 0.015, 1).toFixed(3);
+  }
+  draw();
+});
+function endDrag() { if (S.drag) { S.drag = null; S.guide = false; commit(); draw(); renderPanel(); } }
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("keydown", (ev) => {
+  const e = el(); if (!e) return;
+  const step = ev.shiftKey ? 0.01 : 0.002;
+  const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+  if (moves[ev.key]) { e.x = +clamp(e.x + moves[ev.key][0], 0, 1).toFixed(4); e.y = +clamp(e.y + moves[ev.key][1], 0, 1).toFixed(4); ev.preventDefault(); draw(); commitSoon(); renderPanel(); }
+  else if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); removeSelected(); }
+  else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); }
+  else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "y") { ev.preventDefault(); redo(); }
+});
+
+// ---------------------------------------------------------------- history / commit
+let commitTimer = null;
+function snapshot() { return JSON.stringify(S.layout); }
+function pushHistory() {
+  const snap = snapshot();
+  if (S.hist[S.hpos] === snap) return;
+  S.hist = S.hist.slice(0, S.hpos + 1); S.hist.push(snap);
+  if (S.hist.length > 60) S.hist.shift();
+  S.hpos = S.hist.length - 1;
+}
+function commit() { clearTimeout(commitTimer); pushHistory(); S.rev++; Streamlit.value({ layout: clone(S.layout), rev: S.rev }); updateButtons(); }
+function commitSoon() { clearTimeout(commitTimer); commitTimer = setTimeout(commit, 350); }
+function undo() { if (S.hpos > 0) { S.hpos--; S.layout = JSON.parse(S.hist[S.hpos]); if (!el()) S.sel = null; S.rev++; Streamlit.value({ layout: clone(S.layout), rev: S.rev }); draw(); renderPanel(); updateButtons(); } }
+function redo() { if (S.hpos < S.hist.length - 1) { S.hpos++; S.layout = JSON.parse(S.hist[S.hpos]); if (!el()) S.sel = null; S.rev++; Streamlit.value({ layout: clone(S.layout), rev: S.rev }); draw(); renderPanel(); updateButtons(); } }
+
+// ---------------------------------------------------------------- toolbar actions
+function addText() {
+  const first = S.layout.elements.find((e) => e.type === "text");
+  const e = { id: uid(), type: "text", text: "Your text", x: 0.5, y: 0.7, w: 0.6, font: "Lato", bold: false, italic: false,
+              size: 26, color: first ? first.color : "#1b2a5a", align: "center", fit: "wrap" };
+  S.layout.elements.push(e); S.sel = e.id; commit(); draw(); renderPanel();
+  setTimeout(() => { const t = $("f_text"); if (t) { t.focus(); t.select(); } }, 30);
+}
+function addSticker(id) {
+  const e = { id: uid(), type: "image", src: id, x: 0.5, y: 0.5, w: 0.12, rot: 0 };
+  S.layout.elements.push(e); S.sel = e.id; $("gallery").classList.remove("open"); commit(); draw(); renderPanel();
+}
+function removeSelected() { const e = el(); if (!e) return; S.layout.elements = S.layout.elements.filter((x) => x.id !== e.id); S.sel = null; commit(); draw(); renderPanel(); }
+function duplicate() { const e = el(); if (!e) return; const c = clone(e); c.id = uid(); c.x = clamp(c.x + 0.03, 0, 1); c.y = clamp(c.y + 0.04, 0, 1); S.layout.elements.push(c); S.sel = c.id; commit(); draw(); renderPanel(); }
+function reorder(toFront) {
+  const e = el(); if (!e) return; const list = S.layout.elements.filter((x) => x.id !== e.id);
+  toFront ? list.push(e) : list.unshift(e); S.layout.elements = list; commit(); draw();
+}
+$("addText").onclick = addText;
+$("undo").onclick = undo; $("redo").onclick = redo;
+$("dup").onclick = duplicate; $("del").onclick = removeSelected;
+$("front").onclick = () => reorder(true); $("back").onclick = () => reorder(false);
+$("showSample").onchange = (ev) => { S.showSample = ev.target.checked; draw(); };
+$("addSticker").onclick = (ev) => {
+  const g = $("gallery"); const open = !g.classList.contains("open");
+  g.classList.toggle("open", open);
+  if (open) { const r = ev.currentTarget.getBoundingClientRect(); g.style.left = Math.max(4, r.left) + "px"; g.style.top = (r.bottom + 4) + "px"; }
+};
+document.addEventListener("click", (ev) => { if (!ev.target.closest("#gallery") && ev.target.id !== "addSticker") $("gallery").classList.remove("open"); });
+function updateButtons() {
+  const has = !!el();
+  ["dup", "front", "back", "del"].forEach((id) => { $(id).disabled = !has; });
+  $("undo").disabled = S.hpos <= 0; $("redo").disabled = S.hpos >= S.hist.length - 1;
+}
+function buildGallery() {
+  const g = $("gallery"); g.innerHTML = "";
+  const list = (S.args.stickers || []);
+  list.forEach((s) => {
+    const d = document.createElement("div"); d.className = "item"; d.title = s.name;
+    const i = document.createElement("img"); i.src = s.data_url; d.appendChild(i);
+    d.onclick = () => addSticker(s.id); g.appendChild(d);
+  });
+  const note = document.createElement("div"); note.className = "empty";
+  note.textContent = "Upload your own logo / signature using “Add your own stickers” above the editor.";
+  g.appendChild(note);
+}
+
+// ---------------------------------------------------------------- side panel
+function field(label, inner) { return '<div class="row"><label>' + label + '</label><div class="ctl">' + inner + "</div></div>"; }
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function fontOptions(current) {
+  const cats = {};
+  fams().forEach((f) => { (cats[f.category] = cats[f.category] || []).push(f.name); });
+  ((S.args.custom_fonts) || []).forEach((f) => { (cats["Your fonts"] = cats["Your fonts"] || []).push(f.name); });
+  return Object.entries(cats).map(([c, names]) => '<optgroup label="' + esc(c) + '">' +
+    names.map((n) => '<option value="' + esc(n) + '"' + (n === current ? " selected" : "") + ">" + esc(n) + "</option>").join("") + "</optgroup>").join("");
+}
+function renderPanel() {
+  const p = $("panel"); const e = el(); updateButtons();
+  if (!e) {
+    p.innerHTML = '<h4>Properties</h4><div class="none">Click the name (or any item) on the certificate to edit it.<br><br>' +
+      '• <b>＋ Text</b> adds extra text (event name, date, a sentence…).<br>• <b>＋ Sticker</b> adds a seal, medal, logo or signature.<br>' +
+      '• Use <b>{{Name}}</b> or any column heading as a placeholder — it is replaced for every participant.</div>';
+    return;
+  }
+  if (e.type === "text") {
+    const info = famInfo(e.font) || { styles: { regular: 1 } };
+    const canBold = !!(info.styles.bold || info.styles.bolditalic), canItalic = !!(info.styles.italic || info.styles.bolditalic);
+    const swatches = ["#1b2a5a", "#000000", "#ffffff", "#b8860b", "#8b1a1a", "#145a32", "#f3e2a9"]
+      .map((c) => '<button class="sw" data-c="' + c + '" style="background:' + c + '" title="' + c + '"></button>').join("");
+    const chips = (S.args.placeholders || []).map((k) => '<span class="chip" data-k="' + esc(k) + '">{{' + esc(k) + "}}</span>").join("");
+    p.innerHTML = "<h4>Text</h4>" +
+      '<textarea id="f_text" rows="2">' + esc(e.text) + "</textarea>" +
+      '<div class="chips" id="chips" title="Click to insert">' + chips + "</div>" +
+      field("Font", '<select id="f_font">' + fontOptions(e.font) + "</select>") +
+      field("Style", '<div class="seg"><button id="f_bold" class="' + (e.bold ? "on" : "") + '" ' + (canBold ? "" : "disabled") + '><b>B</b></button>' +
+        '<button id="f_italic" class="' + (e.italic ? "on" : "") + '" ' + (canItalic ? "" : "disabled") + '><i>I</i></button></div>' +
+        '<div class="seg" style="margin-left:6px">' + ["left", "center", "right"].map((a) => '<button data-a="' + a + '" class="' + (e.align === a ? "on" : "") + '">' + { left: "⟸", center: "≡", right: "⟹" }[a] + "</button>").join("") + "</div>") +
+      field("Size", '<input type="range" id="f_size" min="8" max="140" step="1" value="' + e.size + '"><span class="val" id="v_size">' + Math.round(e.size) + " pt</span>") +
+      field("Colour", '<input type="color" id="f_color" value="' + e.color + '"><div class="swatches">' + swatches + "</div>") +
+      field("Width limit", '<input type="range" id="f_w" min="5" max="100" step="1" value="' + Math.round(e.w * 100) + '"><span class="val" id="v_w">' + Math.round(e.w * 100) + "%</span>") +
+      field("Long text", '<select id="f_fit"><option value="shrink"' + (e.fit !== "wrap" ? " selected" : "") + '>Shrink to fit (one line)</option><option value="wrap"' + (e.fit === "wrap" ? " selected" : "") + ">Wrap onto more lines</option></select>") +
+      '<div class="row"><button id="f_center">Centre on page</button></div>';
+    bindText(e);
+  } else {
+    const info = (S.args.stickers || []).find((s) => s.id === e.src);
+    p.innerHTML = "<h4>Sticker · " + esc(info ? info.name : "image") + "</h4>" +
+      field("Size", '<input type="range" id="f_w" min="2" max="60" step="1" value="' + Math.round(e.w * 100) + '"><span class="val" id="v_w">' + Math.round(e.w * 100) + "%</span>") +
+      field("Rotate", '<input type="range" id="f_rot" min="-180" max="180" step="1" value="' + Math.round(e.rot || 0) + '"><span class="val" id="v_rot">' + Math.round(e.rot || 0) + "°</span>") +
+      '<div class="row"><button id="f_center">Centre on page</button></div>';
+    $("f_w").oninput = (ev) => { e.w = ev.target.value / 100; $("v_w").textContent = ev.target.value + "%"; draw(); commitSoon(); };
+    $("f_rot").oninput = (ev) => { e.rot = +ev.target.value; $("v_rot").textContent = ev.target.value + "°"; draw(); commitSoon(); };
+    $("f_center").onclick = () => { e.x = 0.5; commit(); draw(); };
+  }
+}
+function bindText(e) {
+  const t = $("f_text");
+  t.oninput = () => { e.text = t.value; draw(); commitSoon(); };
+  $("chips").onclick = (ev) => {
+    const k = ev.target.dataset && ev.target.dataset.k; if (!k) return;
+    const ins = "{{" + k + "}}", a = t.selectionStart, b = t.selectionEnd;
+    t.value = t.value.slice(0, a) + ins + t.value.slice(b); t.focus(); t.selectionStart = t.selectionEnd = a + ins.length;
+    e.text = t.value; draw(); commitSoon();
+  };
+  $("f_font").onchange = (ev) => {
+    e.font = ev.target.value; const info = famInfo(e.font) || { styles: {} };
+    if (e.bold && !(info.styles.bold || info.styles.bolditalic)) e.bold = false;
+    if (e.italic && !(info.styles.italic || info.styles.bolditalic)) e.italic = false;
+    commit(); draw(); renderPanel();
+  };
+  $("f_bold").onclick = () => { e.bold = !e.bold; commit(); draw(); renderPanel(); };
+  $("f_italic").onclick = () => { e.italic = !e.italic; commit(); draw(); renderPanel(); };
+  document.querySelectorAll("[data-a]").forEach((b) => { b.onclick = () => { e.align = b.dataset.a; commit(); draw(); renderPanel(); }; });
+  $("f_size").oninput = (ev) => { e.size = +ev.target.value; $("v_size").textContent = ev.target.value + " pt"; draw(); commitSoon(); };
+  $("f_color").oninput = (ev) => { e.color = ev.target.value; draw(); commitSoon(); };
+  document.querySelectorAll(".sw").forEach((b) => { b.onclick = () => { e.color = b.dataset.c; commit(); draw(); renderPanel(); }; });
+  $("f_w").oninput = (ev) => { e.w = ev.target.value / 100; $("v_w").textContent = ev.target.value + "%"; draw(); commitSoon(); };
+  $("f_fit").onchange = (ev) => { e.fit = ev.target.value; commit(); draw(); };
+  $("f_center").onclick = () => { e.x = 0.5; e.align = "center"; commit(); draw(); renderPanel(); };
+}
+
+// ---------------------------------------------------------------- images
+function ensureImage(id, src, cb) {
+  if (S.imgs[id] && S.imgs[id]._src === src) return;
+  const im = new Image(); im._src = src; im.onload = () => { draw(); }; im.src = src; S.imgs[id] = im;
+}
+function syncImages() {
+  const a = S.args;
+  if (a.bg !== bgSrc) { bgSrc = a.bg; bgImg = new Image(); bgImg.onload = draw; bgImg.src = a.bg; }
+  (a.stickers || []).forEach((s) => ensureImage(s.id, s.data_url));
+}
+
+// ---------------------------------------------------------------- Streamlit render hook
+function applyTheme(t) {
+  if (!t) return;
+  const r = document.documentElement.style;
+  if (t.backgroundColor) r.setProperty("--bg", t.backgroundColor);
+  if (t.secondaryBackgroundColor) r.setProperty("--bg2", t.secondaryBackgroundColor);
+  if (t.textColor) { r.setProperty("--text", t.textColor); r.setProperty("--muted", t.textColor + "99"); r.setProperty("--line", t.textColor + "33"); }
+  if (t.primaryColor) { r.setProperty("--accent", t.primaryColor); r.setProperty("--accent-soft", t.primaryColor + "22"); }
+}
+function fitFrame(extra) {
+  const h = Math.ceil($("app").getBoundingClientRect().height) + 12;
+  if (Math.abs(h - S.lastHeight) > 2) { S.lastHeight = h; Streamlit.height(h); }
+}
+window.addEventListener("message", (ev) => {
+  if (!ev.data || ev.data.type !== "streamlit:render") return;
+  const first = !S.args;
+  S.args = ev.data.args; applyTheme(ev.data.theme);
+  PW = S.args.page.w; PH = S.args.page.h;
+  $("sampleLabel").textContent = S.args.sample_label ? "Preview with: " + S.args.sample_label : "Preview with real data";
+  if (S.token !== S.args.token) {            // new template / reset requested by Python
+    S.token = S.args.token; S.layout = clone(S.args.layout || { elements: [] }); S.sel = null; S.hist = []; S.hpos = -1; pushHistory();
+  }
+  syncImages(); loadFonts(); buildGallery(); sizeCanvas(); draw();
+  // Never rebuild the properties panel while the user is typing in it (that would steal focus).
+  const ae = document.activeElement;
+  const typing = !first && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest("#panel, .panel, #props");
+  if (!typing) renderPanel();
+  updateButtons();
+  if (first) { setTimeout(() => { sizeCanvas(); draw(); fitFrame(); }, 60); }
+  fitFrame();
+});
+window.addEventListener("resize", () => { if (S.args) { sizeCanvas(); draw(); fitFrame(); } });
+new ResizeObserver(() => fitFrame()).observe($("app"));
+Streamlit.ready();
+</script>
+</body>
+</html>
